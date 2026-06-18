@@ -53,7 +53,7 @@ export class LiveStripeCheckoutAdapter implements Pick<PaymentAdapter, "mode" | 
       headers: {
         Authorization: `Bearer ${this.secretKey}`,
         "Content-Type": "application/x-www-form-urlencoded",
-        "Idempotency-Key": `pio-checkout-${policy.id}`
+        "Idempotency-Key": `pio-checkout-${policy.id}-${crypto.randomUUID()}`
       },
       body
     });

@@ -20,7 +20,7 @@ describe("LiveStripeCheckoutAdapter", () => {
     );
   });
 
-  it("creates a Stripe Checkout Session with policy metadata, premium cents, and idempotency", async () => {
+  it("creates a Stripe Checkout Session with policy metadata, premium cents, and a fresh idempotency key", async () => {
     const policy = quotePolicy(demoCoverageRequest);
     const fetchMock = vi.fn(async () =>
       new Response(
@@ -38,22 +38,29 @@ describe("LiveStripeCheckoutAdapter", () => {
       appUrl: "https://pio.test"
     });
 
-    const checkout = await adapter.createCheckout(policy, { id: "cus_local", name: policy.customerName });
+    const firstCheckout = await adapter.createCheckout(policy, { id: "cus_local", name: policy.customerName });
+    const secondCheckout = await adapter.createCheckout(policy, { id: "cus_local", name: policy.customerName });
 
-    expect(checkout).toEqual({
+    expect(firstCheckout).toEqual({
       id: "cs_test_live_123",
       url: "https://checkout.stripe.com/c/pay/cs_test_live_123",
       premium: policy.premium,
       mode: "stripe_test_mode"
     });
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(secondCheckout).toEqual(firstCheckout);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    const [, secondInit] = fetchMock.mock.calls[1] as unknown as [string, RequestInit];
     expect(url).toBe("https://api.stripe.com/v1/checkout/sessions");
     expect(init.method).toBe("POST");
     expect(init.headers).toMatchObject({
-      Authorization: "Bearer sk_test_123",
-      "Idempotency-Key": `pio-checkout-${policy.id}`
+      Authorization: "Bearer sk_test_123"
     });
+    const firstIdempotencyKey = (init.headers as Record<string, string>)["Idempotency-Key"];
+    const secondIdempotencyKey = (secondInit.headers as Record<string, string>)["Idempotency-Key"];
+    expect(firstIdempotencyKey).toMatch(new RegExp(`^pio-checkout-${policy.id}-[0-9a-f-]{36}$`));
+    expect(secondIdempotencyKey).toMatch(new RegExp(`^pio-checkout-${policy.id}-[0-9a-f-]{36}$`));
+    expect(secondIdempotencyKey).not.toBe(firstIdempotencyKey);
     const body = init.body as URLSearchParams;
     expect(body.get("mode")).toBe("payment");
     expect(body.get("line_items[0][price_data][unit_amount]")).toBe("2500");
